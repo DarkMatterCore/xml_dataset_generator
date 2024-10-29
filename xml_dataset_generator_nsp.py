@@ -66,9 +66,10 @@ DEFAULT_TOOL:     str = '!unknown'
 DEFAULT_REGION:   str = 'Unknown'
 DEFAULT_COMMENT2: str = ''
 
-EXCLUDE_COMMENT:  bool = False
-KEEP_FOLDERS:     bool = False
-NUM_THREADS:      int  = MAX_CPU_THREAD_COUNT
+EXCLUDE_COMMENT:    bool = False
+NSP_CDATE_AS_DDATE: bool = False
+KEEP_FOLDERS:       bool = False
+NUM_THREADS:        int  = MAX_CPU_THREAD_COUNT
 
 HACTOOLNET_VERSION_REGEX            = re.compile(r'^hactoolnet (\d+\.\d+.\d+)$', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_DISTRIBUTION_TYPE_REGEX  = re.compile(r'^Distribution type:\s+(.+)$', flags=(re.MULTILINE | re.IGNORECASE))
@@ -1072,6 +1073,10 @@ class NspInfo:
         return self._is_nsz
 
     @property
+    def creation_date(self) -> str:
+        return self._creation_date
+
+    @property
     def is_standard_nsp(self) -> bool:
         return self._is_standard_nsp
 
@@ -1086,6 +1091,9 @@ class NspInfo:
     def __init__(self, file_entry: FileListEntry, thrd_id: int) -> None:
         # Populate class variables.
         self._populate_vars(file_entry, thrd_id)
+
+        # Get creation date.
+        self._get_creation_date()
 
         # Handle filenames with non-ASCII codepoints.
         self._handle_nonascii_filename()
@@ -1119,6 +1127,8 @@ class NspInfo:
         self._nsz_converted = False
         self._tmp_path = ''
 
+        self._creation_date = ''
+
         self._is_standard_nsp = False
 
         self._thrd_id = thrd_id
@@ -1131,6 +1141,11 @@ class NspInfo:
         self._titles: list[TitleInfo] = []
 
         self._cleanup_called = False
+
+    def _get_creation_date(self) -> None:
+        ctime = os.path.getctime(self._nsp_path)
+        cdate = datetime.date.fromtimestamp(ctime)
+        self._creation_date = cdate.isoformat()
 
     def _handle_nonascii_filename(self) -> None:
         if utilsIsAsciiString(self._nsp_path):
@@ -1401,6 +1416,10 @@ class XmlDataset:
         # Generate source format string.
         src_format = ('StandardNSP' if nsp_info.is_standard_nsp else 'NSP')
 
+        # Generate dump date properties.
+        ddate = (nsp_info.creation_date if NSP_CDATE_AS_DDATE else DEFAULT_DDATE)
+        ddate_provided = (NSP_CDATE_AS_DDATE or DDATE_PROVIDED)
+
         # Generate XML entry.
         title_str  = '  <game name="">\n'
         title_str += f'    <archive name="{html_escape(archive_name)}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="" gameid1="{title_info.id}" />\n'
@@ -1426,7 +1445,7 @@ class XmlDataset:
             title_str += '    </media>\n'
 
         title_str += '    <source>\n'
-        title_str += f'      <details section="{DEFAULT_SECTION}" rominfo="" originalformat="{src_format}" d_date="{DEFAULT_DDATE}" d_date_info="{int(DDATE_PROVIDED)}" r_date="{DEFAULT_RDATE}" r_date_info="{int(RDATE_PROVIDED)}" dumper="{DEFAULT_DUMPER}" project="{DEFAULT_PROJECT}" tool="{DEFAULT_TOOL}" region="{DEFAULT_REGION}" origin="" comment1="" comment2="{self._comment2}" link1="" link2="" media_title="" />\n'
+        title_str += f'      <details section="{DEFAULT_SECTION}" rominfo="" originalformat="{src_format}" d_date="{ddate}" d_date_info="{int(ddate_provided)}" r_date="{DEFAULT_RDATE}" r_date_info="{int(RDATE_PROVIDED)}" dumper="{DEFAULT_DUMPER}" project="{DEFAULT_PROJECT}" tool="{DEFAULT_TOOL}" region="{DEFAULT_REGION}" origin="" comment1="" comment2="{self._comment2}" link1="" link2="" media_title="" />\n'
         title_str += f'      <serials media_serial1="" media_serial2="" pcb_serial="" romchip_serial1="" romchip_serial2="" lockout_serial="" savechip_serial="" chip_serial="" box_serial="" mediastamp="" box_barcode="" digital_serial1="{title_info.id}" digital_serial2="" />\n'
 
         if not EXCLUDE_NSP:
@@ -1730,7 +1749,7 @@ def utilsValidateThreadCount(num_threads: str) -> int:
 def main() -> int:
     global NSP_PATH, HACTOOLNET_PATH, KEYS_PATH, CERT_PATH, OUTPUT_PATH, EXCLUDE_NSP, EXCLUDE_TIK
     global DEFAULT_SECTION, DDATE_PROVIDED, DEFAULT_DDATE, RDATE_PROVIDED, DEFAULT_RDATE, DEFAULT_DUMPER, DEFAULT_PROJECT, DEFAULT_TOOL, DEFAULT_REGION
-    global EXCLUDE_COMMENT, KEEP_FOLDERS, NUM_THREADS
+    global EXCLUDE_COMMENT, NSP_CDATE_AS_DDATE, KEEP_FOLDERS, NUM_THREADS
 
     # Get git commit information.
     utilsGetGitRepositoryInfo()
@@ -1757,6 +1776,7 @@ def main() -> int:
     parser.add_argument('--region', type=str, default=DEFAULT_REGION, help=f'Region string used in the output XML dataset. Defaults to "{DEFAULT_REGION}" if not provided.')
 
     parser.add_argument('--exclude-comment', action='store_true', default=EXCLUDE_COMMENT, help='Excludes information about this script from the comment2 field in XML entries. Disabled by default (comment2 fields hold information about this script).')
+    parser.add_argument('--nsp-cdate-as-ddate', action='store_true', default=NSP_CDATE_AS_DDATE, help='Uses NSP file date information as the dump date. Disabled by default (current date is used for all files if no date is explicitly provided).')
     parser.add_argument('--keep-folders', action='store_true', default=KEEP_FOLDERS, help='Keeps extracted NSP folders in the provided output directory. Disabled by default (all extracted folders are removed).')
     parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=NUM_THREADS, help=f'Sets the number of threads used to process input NSP/NSZ files. Defaults to {NUM_THREADS} if not provided. This value must not be exceeded.')
 
@@ -1784,6 +1804,7 @@ def main() -> int:
     DEFAULT_REGION = html_escape(args.region)
 
     EXCLUDE_COMMENT = args.exclude_comment
+    NSP_CDATE_AS_DDATE = args.nsp_cdate_as_ddate
     KEEP_FOLDERS = args.keep_folders
     NUM_THREADS = args.num_threads
 
