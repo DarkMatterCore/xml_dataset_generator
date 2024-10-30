@@ -1599,7 +1599,7 @@ class XmlDataset:
             case _:
                 pass
 
-        return (','.join(dev_status) if dev_status else '')
+        return (', '.join(dev_status) if dev_status else '')
 
     def _generate_xml_file_elem(self, forcename: str, extension: str, format: str, note: str, version: int, size: int, checksums: Checksums, filter: str) -> str:
         extension = (f' extension="{extension}" ' if extension else ' ')
